@@ -1,0 +1,76 @@
+#! /usr/bin/ruby
+
+require_relative '../lib/assembox'
+require 'optparse'
+
+options = {
+  :glob => "*.*",
+  :dir => "."
+}
+
+optparse = OptionParser.new do |opts|
+
+  opts.banner = <<EOS
+mbox [options]
+
+Options:
+EOS
+
+  opts.on('-d', '--dir DIR', "Read mails from DIR") do |o|
+    options[:dir] = o
+  end
+
+  opts.on('-m', '--message MSG', "Read one message MSG") do |o|
+    options[:glob] = "#{o}.*"
+  end
+
+  opts.on('-o', '--output FILE', "Write messages to FILE in mbox format") do |o|
+    options[:mbox] = o
+  end
+
+  opts.on('-c', "--cleanup FILE", "Write a cleanup script to FILE") do |o|
+    options[:cleanup] = o
+  end
+end
+
+optparse.parse!
+
+msgs = MessageList.new
+
+Dir::chdir(options[:dir])
+
+Dir::glob(options[:glob]).each do |p|
+  if p =~ /^([0-9]+)\./
+    msgs.add(p)
+  end
+end
+
+msgs.finalize
+
+if options[:verbose]
+  msgs.keys.sort.each do |m|
+    if msgs[m].plain?
+      # Plain message
+      # puts "#{m} P"
+    elsif msgs[m].mime?
+      puts "#{m}: #{msgs[m].parts.sort.map{ |p| p.name }.join(" ")}"
+    else
+      puts "#{m}: #{msgs[m].inspect} ???"
+    end
+  end
+end
+
+if mbox = options[:mbox]
+  print "Writing #{mbox} ..."
+  count = nil
+  files = nil
+  File::open(mbox, "w") { |fp| count, files = msgs.to_mbox(fp) }
+  puts "\n  Wrote #{count} messages"
+  if options[:cleanup]
+    File::open(options[:cleanup], "w") do |fp|
+      fp.puts "#! /bin/bash"
+      fp.puts "cd #{File::expand_path(options[:dir])}"
+      files.each { |f| fp.puts "rm '#{f.join("' '")}'" }
+    end
+  end
+end
